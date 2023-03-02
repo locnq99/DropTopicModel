@@ -32,7 +32,7 @@ class DropTopic(nn.Module):
         if self.config.model == 'bern':
             alpha_init = 0.0
             alpha = torch.tensor([alpha_init] * n_topics)
-            # alpha = torch.FloatTensor(n_topics).uniform_(-1,1)
+            # alpha = torch.FloatTensor(n_topics).uniform_(-2,2)
         else:
             alpha = torch.FloatTensor(n_topics).uniform_(-1,1)
 
@@ -54,6 +54,8 @@ class DropTopic(nn.Module):
         
         prior_alpha = prior_alpha.to(self.config.device)
         prior_alpha = nn.Parameter(prior_alpha, requires_grad = False)
+        # prior_alpha = nn.Parameter(prior_alpha, requires_grad = True)
+        
         return prior_alpha
     
     def _get_weight_model(self):
@@ -65,12 +67,13 @@ class DropTopic(nn.Module):
         pi_scale = self._init_weight_decode(n_topics_scale)
         prev_pi = copy.deepcopy(self.pi_weight.data)
         
-        # chi copy weight tot
-        pi_scale.data[lst_topic_freeze,:] = prev_pi[lst_topic_freeze,:]
-        
         # copy toan bo weight 
-        # lst_idx = list(range(len(prev_pi)))
-        # pi_scale.data[lst_idx,:] = prev_pi
+        if self.config.copy_all_weight: 
+            lst_idx = list(range(len(prev_pi)))
+            pi_scale.data[lst_idx,:] = prev_pi
+        else:
+            # chi copy weight tot
+            pi_scale.data[lst_topic_freeze,:] = prev_pi[lst_topic_freeze,:]
 
         pi_scale.data[idx_copy,:] = self.prev_pi[idx_copy,:]
         

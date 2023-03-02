@@ -31,6 +31,7 @@ class ExternalEncoder(nn.Module):
     
     def _init_batchnorm(self, n_topics):
         bn = nn.BatchNorm1d(n_topics, affine = False).to(self.config.device)
+        
         return bn 
 
     def _init_prior_gauss(self, n_topics):
@@ -43,12 +44,15 @@ class ExternalEncoder(nn.Module):
         )
         prior_mu = prior_mu.to(self.config.device)
         prior_mu = nn.Parameter(prior_mu, requires_grad = False)
-
+        # prior_mu = nn.Parameter(prior_mu, requires_grad = True)
+        
         topic_prior_var = 1. - (1./ n_topics)
         prior_var = torch.tensor(
             [topic_prior_var] * n_topics)
         prior_var = prior_var.to(self.config.device)
         prior_var = nn.Parameter(prior_var, requires_grad = False)
+        # prior_var = nn.Parameter(prior_var, requires_grad = True)
+        
         return prior_mu, prior_var
     
     def _get_active(self):
@@ -56,6 +60,8 @@ class ExternalEncoder(nn.Module):
             return nn.Softplus()
         elif self.config.active_func == 'relu':
             return nn.ReLU()
+        elif self.config.active_func == 'tanh':
+            return nn.Tanh()
     
     def _get_weight_model(self):
         self.prev_posterior_mu = copy.deepcopy(self.mu_encode.weight.data).detach()
@@ -74,7 +80,7 @@ class ExternalEncoder(nn.Module):
         # prev_prior_logvar = copy.deepcopy(self.prior_logvar.data)
 
         # copy toan bo weight
-        if self.config.update_all_weight:
+        if self.config.copy_all_weight:
             lst_idx = list(range(len(prev_mu)))
             mu_scale.weight.data[lst_idx,:] = prev_mu
             logvar_scale.weight.data[lst_idx, :] = prev_logvar
@@ -89,8 +95,7 @@ class ExternalEncoder(nn.Module):
         logvar_scale.weight.data[lst_topic_freeze, :] = self.prev_posterior_logvar[lst_topic_freeze,:]
         
         #update
-        # self.mu_encode = nn.Parameter(mu_scale.detach())
-        # self.logvar_encode = nn.Parameter(logvar_scale.detach())
+        
         self.mu_encode = mu_scale
         self.logvar_encode = logvar_scale
         self.prior_mu = nn.Parameter(prior_mu.detach())
@@ -107,9 +112,9 @@ class ExternalEncoder(nn.Module):
         logvar = self.logvar_encode(pretrain_embedding)
         logvar = self.dropout(logvar)
         logvar = self.active(logvar)
-
-        mu = self.bn_mu(mu)
-        logvar = self.bn_logvar(logvar)
+        
+        # mu = self.bn_mu(mu)
+        # logvar = self.bn_logvar(logvar)
         
         theta = F.softmax(
             self.reparameter(mu = mu, 

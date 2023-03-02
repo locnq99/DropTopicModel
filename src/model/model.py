@@ -21,7 +21,7 @@ class DropTopicModel(nn.Module):
                                 word_embedding = word_embedding)
 
         self.bn_recon = nn.BatchNorm1d(config.vocab_size, affine = False)
-
+        
         self.curr_epoch = 0
         self.idx_topic_to_epoch = defaultdict(list)
         self.epoch_to_idx_topic = defaultdict(list)
@@ -143,6 +143,12 @@ class DropTopicModel(nn.Module):
         tqdm.write(f'total topic {len(self.droptopic.alpha)}')
         tqdm.write(f'num topic freeze {len(self.lst_idx_topic_freeze)}')
         tqdm.write(f'num topic metric: {len(self.lst_idx_topic_for_metric)}')
+        tqdm.write(f'droprate; mean: {droprate.mean()}, max: {max(droprate)}, min: {min(droprate)}')
+        
+        # print(droprate)
+        # print(droprate.mean())
+        # print(lst_topic_npmi)
+        # print(dkahfkah)
 
         
     def _save_previous_weight(self):
@@ -241,15 +247,15 @@ class DropTopicModel(nn.Module):
         mu, logvar, theta = self.encoder(pretrain_embedding)
         beta, beta_hat = self.droptopic()
 
-        # x_recon = F.softmax(
-        #     torch.mm(theta, beta_hat), dim = 1
-        # )
-
-        bow = bow / bow.sum(axis = 1).unsqueeze(1)
-
         x_recon = F.softmax(
-            self.bn_recon(torch.mm(theta, beta_hat)), dim = 1
+            torch.mm(theta, beta_hat), dim = 1
         )
+
+#         bow = bow / bow.sum(axis = 1).unsqueeze(1)
+
+#         x_recon = F.softmax(
+#             self.bn_recon(torch.mm(theta, beta_hat)), dim = 1
+#         )
         loss = self._loss_func(posterior_mu = mu, 
                                 posterior_logvar = logvar,
                                 x_recon = x_recon,
@@ -266,5 +272,13 @@ class DropTopicModel(nn.Module):
         # beta_use = beta
 
         beta = torch.softmax(beta, axis = 1)
-        beta_use = torch.softmax(beta_use, axis = 1)
-        return beta_use, beta
+        # beta_use = 
+        return torch.softmax(beta_use, axis = 1), beta, beta_use
+
+    def get_theta(self, pretrain_embedding):
+        mu, logvar, theta = self.encoder(pretrain_embedding.float())
+        mu = mu[:,self.lst_idx_topic_for_metric]
+        mu = torch.softmax(mu, axis = 1)
+        return mu
+        # theta = theta[:,self.lst_idx_topic_for_metric]
+        # return theta

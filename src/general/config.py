@@ -16,7 +16,7 @@ class Config:
                 droprate_topic = None,
                 dropout = 0.1,
                 n_topic_scale = 100,
-                update_all_weight = False,
+                copy_all_weight = False,
                 lr = 1e-4,
                 batch_size = 512,
                 n_loop_each_batch = 10,
@@ -42,7 +42,7 @@ class Config:
         self.droprate_topic = droprate_topic
         self.dropout = dropout
         self.n_topic_scale = n_topic_scale
-        self.update_all_weight = update_all_weight
+        self.copy_all_weight = copy_all_weight
         self.lr = lr
         self.batch_size = batch_size
         self.n_loop_each_batch = n_loop_each_batch

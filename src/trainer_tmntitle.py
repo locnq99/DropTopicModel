@@ -22,8 +22,10 @@ class Trainer:
         self.net = self.net.to(self.config.device)
 
         # init optimizer
+        # self.optimizer = optim.Adam(
+        #     self.net.parameters(), lr=config.lr,  betas=(0.99, 0.995))
         self.optimizer = optim.Adam(
-            self.net.parameters(), lr=config.lr,  betas=(0.99, 0.995))
+            self.net.parameters(), lr=config.lr)
         
         self.best_loss_train = float('inf')
         self.kq = pd.DataFrame(columns=['epoch_id','loss', 'LPP', 'npmi'])
@@ -36,7 +38,7 @@ class Trainer:
         input:
             train: type DataSet
             data_test: 
-                tuple (wordinds1, wordcnts2, wordinds2, wordcnts2)
+                tuple (part1_vector, wordinds2, wordcnts2)
         """                      
         n  = train_bow.shape[0]
         epoch_size = self.config.batch_size
@@ -80,7 +82,7 @@ class Trainer:
                 self.optimizer.step()
             
             self.net.eval()
-            beta_use, all_beta = self.net.get_topic()
+            beta_use, all_beta,_ = self.net.get_topic()
             npmi_score, lst_npmi = self._get_topic_coherence(all_beta)
 
             self.net._store_best_topic(lst_npmi)
@@ -88,24 +90,20 @@ class Trainer:
                 self.net._save_previous_weight()
 
             LD = 0
-            if i %10 == 0:
+            if i %1 == 0:
                 LD = self._update_result(0,0, data_test, 0)
 
-            if i == n_epoch - 1:
-                LD = self._update_result(0,0, data_test, 0)
-            
-            # print(lkdjhafkjh)
             if i != n_epoch - 1:
                 self.net._reset_model()
 
-            beta_use, all_beta = self.net.get_topic()
+            beta_use, all_beta, _ = self.net.get_topic()
             npmi_score, lst_npmi = self._get_topic_coherence(all_beta)
             self._save_model(i, lst_npmi)
             
             if i != 0:
                 self.net._save_previous_weight()
 
-            beta_use, all_beta = self.net.get_topic()
+            beta_use, all_beta, _ = self.net.get_topic()
             npmi_score, lst_npmi = self._get_topic_coherence(beta_use)
             tqdm.write(f'npmi after scale: {npmi_score}')
             tqdm.write('----------------------------------------')
@@ -113,10 +111,10 @@ class Trainer:
             
             n = len(self.kq)
             self.kq.loc[n] = [i, loss.item(), LD, npmi_score]
-            self.kq.to_csv(self.config.path_kq)
+            self.kq.to_csv(self.config.path_kq, index = False)
 
             # self.net.eval()
-            # beta_use, all_beta = self.net.get_topic()
+            # beta_use, all_beta, _ = self.net.get_topic()
             # npmi_score, lst_npmi = self._get_topic_coherence(beta_use)
             
             # tqdm.write(f'num topic: {len(self.net.lst_topic)},\
@@ -136,8 +134,10 @@ class Trainer:
             
     def _reset_optimizer(self, lr):
         self.best_loss_train = float('inf')
+        # self.optimizer = optim.Adam(
+        #     self.net.parameters(), lr = lr, betas = (0.99,0.995))
         self.optimizer = optim.Adam(
-            self.net.parameters(), lr = lr,  betas=(0.99, 0.995))
+            self.net.parameters(), lr = lr)
 
     def _store_pi_weight(self):
         pi_weight = copy.deepcopy(self.net.pi.data)
@@ -153,14 +153,35 @@ class Trainer:
         return npmi_score, lst_npmi
         
     def _update_result(self, batch_id, loss, data_test, word_inv):
-        wordinds1, wordcnts, wordinds2, wordcnts2 = data_test
-        beta, _ = self.net.get_topic()
-        # _, beta= self.net.get_topic()
+        part1_vector, bows_part1, wordinds2, wordcnts2 = data_test
+
+        lst_theta = []
+        for i in range(len(part1_vector)):
+            net_infer = copy.deepcopy(self.net)
+            net_infer.encoder.train()
+            net_infer.droptopic.eval()
+            opt = optim.Adam(net_infer.parameters(), lr = self.config.lr)
+            vector = part1_vector[i].to(self.config.device).float()
+            bows = bows_part1[i].to(self.config.device).float()
+            for _ in range(5):
+                idx_shuffle = torch.randperm(len(bows))
+                bows_train = bows[idx_shuffle]
+                vector_train = vector[idx_shuffle]
+                loss = net_infer(bows_train, vector_train, True, False)
+                # tqdm.write(f'loss infer {loss.item()}' )
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+            net_infer.eval()
+            theta = net_infer.get_theta(vector)
+            lst_theta.append(theta.detach().cpu().numpy())
+            
+        beta, _,_ = self.net.get_topic()
         beta = beta.detach().cpu().numpy()
         
-        LD, ld2 = compute_perplexity(wordinds1, wordcnts, wordinds2, wordcnts2, \
+        LD, ld2 = compute_perplexity(lst_theta, wordinds2, wordcnts2, \
                     len(beta), self.config.n_infer_pp, self.config.alpha_pp, \
-                        beta, self.config.num_test_file)
+                        beta, self.config.num_test_file, self.net)
         tqdm.write(f'######################################################### LPP: {LD}')
         return LD
         # print(kjdahfkjha)
@@ -189,7 +210,7 @@ class Trainer:
             'lst_topic_metric': self.net.lst_idx_topic_for_metric
             }, self.config.path_checkpoint + f'_{batch_id}.pt')
         # save Beta
-        beta, all_beta = self.net.get_topic()
+        beta, all_beta,_ = self.net.get_topic()
         beta = beta.detach().cpu().numpy()
         all_beta = all_beta.detach().cpu().numpy()
         with open(self.config.path_beta + '_{}.pkl'.format(batch_id),'wb') as f:
@@ -206,14 +227,11 @@ if __name__ == "__main__":
     setting = read_setting(path_data)
     with open(path_data + 'train.pkl','rb') as f:
         bows = pickle.load(f)   
-    with open(path_data + 'docs_vector.pkl','rb') as f:
+    with open(path_data + 'train_vector.pkl','rb') as f:
         pretrain_embedding = pickle.load(f)
     with open(path_data + 'prior.pkl', 'rb') as f:
         word_embedding = pickle.load(f)
     
-    data_test = read_data_test(path = path_data,
-                              num_test = setting['num_test'])
-    # get wordinv
     word_inv = defaultdict(list)
     for i in range(bows.shape[0]):
         idx = bows[i].toarray()[0].nonzero()[0]
@@ -232,18 +250,18 @@ if __name__ == "__main__":
                     active_func = 'softplus',
                     word_embedding_dim = 200,
                     model = 'bern',
-                    l2_weight = 2e-2,
+                    l2_weight = 5e-2,
                     vocab_size = bows.shape[1],
                     temperature = 0.1,
-                    threshold_npmi = [0.04,0.02,0.01],
-                    init_prior_alpha = 'fix',
-                    droprate_topic = 0.56,
+                    threshold_npmi = [0.03,0.01,-0.02],
+                    init_prior_alpha = 'random',
+                    droprate_topic = 0.5,
                     dropout = 0.2,
                     n_topic_scale = 2,
-                    update_all_weight = True,
+                    copy_all_weight = False,
                     lr = 1e-2, 
                     batch_size = setting['batch_size'],
-                    n_loop_each_batch = 11,
+                    n_loop_each_batch = 10,
                     n_infer_pp = setting['n_infer_pp'],
                     alpha_pp = setting['alpha_pp'],
                     num_test_file = setting['num_test'],
